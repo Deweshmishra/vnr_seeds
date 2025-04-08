@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -35,6 +34,8 @@ class _MapScreenState extends State<MapScreen> {
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
   final List<LatLng> _selectedPoints = [];
+  final Set<Polygon> _polygons = {};
+
   double _totalDistance = 0.0;
   double _area = 0.0;
   bool _isTracking = false;
@@ -134,20 +135,33 @@ class _MapScreenState extends State<MapScreen> {
   void _stopTracking() {
     setState(() {
       _isTracking = false;
-      _calculateDistanceAndArea();
-      // Add polyline when stopping
-      if (_selectedPoints.length >= 2) {
-        _polylines.add(
-          Polyline(
-            polylineId: const PolylineId('path'),
-            points: _selectedPoints,
-            color: Colors.blue,
-            width: 5,
-          ),
-        );
-      }
     });
+    _calculateDistanceAndArea();
+
+    if (_selectedPoints.length >= 2) {
+      _polylines.add(
+        Polyline(
+          polylineId: const PolylineId('path'),
+          points: _selectedPoints,
+          color: Colors.blue,
+          width: 5,
+        ),
+      );
+    }
+
+    if (_selectedPoints.length >= 3) {
+      _polygons.add(
+        Polygon(
+          polygonId: const PolygonId('area'),
+          points: _selectedPoints,
+          fillColor: Colors.blue.withOpacity(0.2),
+          strokeColor: Colors.blue,
+          strokeWidth: 2,
+        ),
+      );
+    }
   }
+
 
   void _calculateDistanceAndArea() {
     if (_selectedPoints.length < 2) {
@@ -181,24 +195,27 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   double _calculateArea(List<LatLng> points) {
+    if (points.length < 3) return 0.0;
 
-    List<Offset> cartesianPoints = points.map((point) {
-
-      double x = point.longitude * 111320 * math.cos(point.latitude * math.pi / 180);
-      double y = point.latitude * 111320;
-      return Offset(x, y);
-    }).toList();
-
+    const double earthRadius = 6371000; // in meters
 
     double area = 0.0;
-    int n = cartesianPoints.length;
-    for (int i = 0; i < n; i++) {
-      int j = (i + 1) % n;
-      area += cartesianPoints[i].dx * cartesianPoints[j].dy;
-      area -= cartesianPoints[j].dx * cartesianPoints[i].dy;
+    for (int i = 0; i < points.length; i++) {
+      LatLng p1 = points[i];
+      LatLng p2 = points[(i + 1) % points.length];
+
+      double lat1 = p1.latitude * math.pi / 180;
+      double lon1 = p1.longitude * math.pi / 180;
+      double lat2 = p2.latitude * math.pi / 180;
+      double lon2 = p2.longitude * math.pi / 180;
+
+      area += (lon2 - lon1) * (2 + math.sin(lat1) + math.sin(lat2));
     }
-    return area.abs() / 2;
+
+    area = area * earthRadius * earthRadius / 2.0;
+    return area.abs(); // in square meters
   }
+
 
   void _showLocationDialog(String message) {
     if (!mounted) return;
@@ -228,9 +245,11 @@ class _MapScreenState extends State<MapScreen> {
             initialCameraPosition: const CameraPosition(target: LatLng(0, 0), zoom: 2),
             markers: _markers,
             polylines: _polylines,
+            polygons: _polygons, // ← ADD THIS LINE
             myLocationEnabled: true,
             myLocationButtonEnabled: true,
           ),
+
           Positioned(
             bottom: 20,
             left: 20,
